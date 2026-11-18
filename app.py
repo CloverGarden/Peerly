@@ -13,13 +13,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 load_dotenv()
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
 if not app.secret_key:
-    raise RuntimeError("FLASK_SECRET_KEY belum diatur di file .env")
+    raise RuntimeError("FLASK_SECRET_KEY belum diatur di environment variables")
 
 app.config.update(
     SESSION_TYPE="filesystem",
-    SESSION_FILE_DIR=os.path.join(app.instance_path, "flask_session"),
+    SESSION_FILE_DIR="/tmp/flask_session",
     SESSION_PERMANENT=True,
     SESSION_USE_SIGNER=True,
     SESSION_COOKIE_HTTPONLY=True,
@@ -27,11 +28,20 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.getenv("FLASK_ENV") == "production",
     PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 7,
 )
+
 Session(app)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+print("=== SUPABASE CONFIG CHECK ===")
+print("URL:", SUPABASE_URL)
+print("PUBLISHABLE EXISTS:", bool(SUPABASE_PUBLISHABLE_KEY))
+print("SERVICE ROLE EXISTS:", bool(SUPABASE_SERVICE_ROLE_KEY))
+print("SERVICE ROLE LENGTH:", len(SUPABASE_SERVICE_ROLE_KEY or ""))
+print("SERVICE ROLE PREFIX:", (SUPABASE_SERVICE_ROLE_KEY or "")[:12])
+print("=============================")
 
 if not all([SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY]):
     raise RuntimeError("SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY wajib diisi di .env")

@@ -1,0 +1,4 @@
+Flask
+Flask-Session
+python-dotenv
+supabase>=2.25.0,<3.0.0

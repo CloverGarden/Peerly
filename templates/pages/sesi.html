@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sesi Belajar — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<div class="app" id="shell"></div>
+
+<!-- Feedback modal -->
+<div class="modal-backdrop" id="fbModal">
+  <div class="modal">
+    <button class="close" id="fbClose">×</button>
+    <h2>Beri rating & feedback</h2>
+    <p class="meta" id="fbTarget"></p>
+    <div id="fbAlert"></div>
+    <form id="fbForm">
+      <input type="hidden" name="session_id">
+      <div class="form-group">
+        <label>Rating (1-5)</label>
+        <div id="starPicker" style="font-size:2rem; color:var(--color-amber); cursor:pointer; letter-spacing:4px;"></div>
+        <input type="hidden" name="rating" value="5">
+      </div>
+      <div class="form-group">
+        <label>Komentar (opsional)</label>
+        <textarea name="comment" placeholder="Hal yang paling membantumu / bisa ditingkatkan"></textarea>
+      </div>
+      <button class="btn btn-primary" type="submit">Kirim</button>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm modal (tutor) -->
+<div class="modal-backdrop" id="confModal">
+  <div class="modal">
+    <button class="close" id="confClose">×</button>
+    <h2>Konfirmasi sesi</h2>
+    <div id="confAlert"></div>
+    <form id="confForm">
+      <input type="hidden" name="session_id">
+      <div class="form-group">
+        <label>Link meeting / lokasi final (opsional)</label>
+        <input name="location_or_link" placeholder="mis. https://meet.google.com/xyz atau alamat">
+        <div class="form-help">Boleh dikosongkan jika sudah ditulis siswa.</div>
+      </div>
+      <button class="btn btn-primary" type="submit">Konfirmasi sesi</button>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+  import { api, requireAuth, getUser } from '/js/api.js';
+  import { mountShell, fmtDateTime, statusChip, escapeHtml, toast } from '/js/ui.js';
+
+  const user = requireAuth();
+  if (!user) throw new Error('redirect');
+  mountShell('/pages/sesi.html');
+  const main = document.getElementById('mainContent');
+  const isSiswa = user.role === 'siswa';
+
+  main.innerHTML = `
+    <div class="main-head">
+      <div>
+        <h1>${isSiswa ? 'Sesi Belajar Saya' : 'Jadwal Sesi'}</h1>
+        <p class="sub">${isSiswa ? 'Lihat permintaan, jadwal yang terkonfirmasi, dan beri feedback setelah sesi selesai.' : 'Kelola permintaan sesi dari siswa dan catat progress mereka.'}</p>
+      </div>
+    </div>
+
+    <div class="toolbar" style="grid-template-columns: repeat(5, auto); gap:8px;">
+      <button class="btn-sm ghost tab-btn active" data-tab="all">Semua</button>
+      <button class="btn-sm ghost tab-btn" data-tab="pending">Pending</button>
+      <button class="btn-sm ghost tab-btn" data-tab="confirmed">Dikonfirmasi</button>
+      <button class="btn-sm ghost tab-btn" data-tab="completed">Selesai</button>
+      <button class="btn-sm ghost tab-btn" data-tab="cancelled">Dibatalkan/Ditolak</button>
+    </div>
+
+    <div id="list"></div>
+  `;
+
+  let currentTab = 'all';
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      currentTab = b.dataset.tab;
+      render();
+    });
+  });
+
+  await render();
+
+  async function render() {
+    const list = document.getElementById('list');
+    list.innerHTML = `<div class="empty" style="padding:20px;">Memuat…</div>`;
+    const { sessions } = await api('/api/sessions');
+    let shown = sessions;
+    if (currentTab === 'cancelled') {
+      shown = sessions.filter(s => s.status === 'cancelled' || s.status === 'rejected');
+    } else if (currentTab !== 'all') {
+      shown = sessions.filter(s => s.status === currentTab);
+    }
+    if (!shown.length) {
+      list.innerHTML = `<div class="empty"><h3>Tidak ada sesi</h3><p>${
+        isSiswa ? '<a href="/pages/cari-tutor.html" class="btn-sm" style="margin-top:12px;">Cari tutor</a>' : ''
+      }</p></div>`;
+      return;
+    }
+
+    list.innerHTML = shown.map(s => {
+      const partner = isSiswa ? s.tutor_name : s.siswa_name;
+      const actions = buildActions(s);
+      return `
+        <div class="list-item">
+          <div>
+            <h4>${escapeHtml(s.mata_pelajaran)}${s.topik ? ' — ' + escapeHtml(s.topik) : ''}</h4>
+            <div class="meta">
+              dengan <strong>${escapeHtml(partner)}</strong> · ${fmtDateTime(s.scheduled_at)} · ${s.duration_min} menit · ${s.mode}
+            </div>
+            <div class="chips">
+              ${statusChip(s.status)}
+              ${s.jenjang ? `<span class="chip">${escapeHtml(s.jenjang)}</span>` : ''}
+              ${s.location_or_link ? `<span class="chip amber">${escapeHtml(s.location_or_link)}</span>` : ''}
+            </div>
+            ${s.notes ? `<p class="meta" style="margin-top:8px;"><em>Catatan:</em> ${escapeHtml(s.notes)}</p>` : ''}
+          </div>
+          <div class="actions">${actions}</div>
+        </div>
+      `;
+    }).join('');
+
+    // Bind action handlers
+    list.querySelectorAll('[data-respond]').forEach(b => b.addEventListener('click', () => openConf(b.dataset)));
+    list.querySelectorAll('[data-reject]').forEach(b => b.addEventListener('click', () => respond(b.dataset.reject, 'reject')));
+    list.querySelectorAll('[data-complete]').forEach(b => b.addEventListener('click', () => completeSesi(b.dataset.complete)));
+    list.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => cancelSesi(b.dataset.cancel)));
+    list.querySelectorAll('[data-feedback]').forEach(b => b.addEventListener('click', () => openFb(b.dataset)));
+    list.querySelectorAll('[data-progress]').forEach(b => b.addEventListener('click', () => progressSesi(b.dataset)));
+  }
+
+  function buildActions(s) {
+    const parts = [];
+    if (!isSiswa && s.status === 'pending') {
+      parts.push(`<button class="btn-sm" data-respond="${s.id}">Konfirmasi</button>`);
+      parts.push(`<button class="btn-sm danger" data-reject="${s.id}">Tolak</button>`);
+    }
+    if (s.status === 'confirmed') {
+      // Only after scheduled time passes it's "completable", but we allow anytime for simplicity
+      parts.push(`<button class="btn-sm" data-complete="${s.id}">Tandai selesai</button>`);
+      parts.push(`<button class="btn-sm danger" data-cancel="${s.id}">Batalkan</button>`);
+    }
+    if (s.status === 'pending' && isSiswa) {
+      parts.push(`<button class="btn-sm danger" data-cancel="${s.id}">Batalkan</button>`);
+    }
+    if (s.status === 'completed') {
+      parts.push(`<button class="btn-sm outline" data-feedback="${s.id}" data-partner="${escapeHtml(isSiswa ? s.tutor_name : s.siswa_name)}">Beri feedback</button>`);
+      if (!isSiswa) {
+        parts.push(`<button class="btn-sm outline" data-progress="${s.id}" data-siswa="${s.siswa_id}" data-mp="${escapeHtml(s.mata_pelajaran)}">Catat progress</button>`);
+      }
+    }
+    return parts.join(' ');
+  }
+
+  async function respond(id, action) {
+    try {
+      await api(`/api/sessions/${id}/respond`, { method: 'POST', body: { action } });
+      toast(action === 'confirm' ? 'Sesi dikonfirmasi' : 'Sesi ditolak', 'success');
+      render();
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  async function completeSesi(id) {
+    if (!confirm('Tandai sesi sebagai selesai?')) return;
+    try {
+      const { earned_points } = await api(`/api/sessions/${id}/complete`, { method: 'POST' });
+      toast(earned_points ? `Sesi selesai. ${isSiswa ? '' : '+' + earned_points + ' poin!'}` : 'Sesi selesai', 'success');
+      render();
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  async function cancelSesi(id) {
+    if (!confirm('Yakin batalkan sesi ini?')) return;
+    try {
+      await api(`/api/sessions/${id}/cancel`, { method: 'POST' });
+      toast('Sesi dibatalkan', 'success');
+      render();
+    } catch (err) { toast(err.message, 'error'); }
+  }
+
+  // Confirm modal
+  const confModal = document.getElementById('confModal');
+  document.getElementById('confClose').onclick = () => confModal.classList.remove('open');
+  confModal.addEventListener('click', (e) => { if (e.target === confModal) confModal.classList.remove('open'); });
+  function openConf({ respond }) {
+    document.querySelector('#confForm input[name="session_id"]').value = respond;
+    document.getElementById('confAlert').innerHTML = '';
+    confModal.classList.add('open');
+  }
+  document.getElementById('confForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api(`/api/sessions/${fd.get('session_id')}/respond`, {
+        method: 'POST',
+        body: { action: 'confirm', location_or_link: fd.get('location_or_link') || null }
+      });
+      confModal.classList.remove('open');
+      toast('Sesi dikonfirmasi', 'success');
+      render();
+    } catch (err) {
+      document.getElementById('confAlert').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+    }
+  });
+
+  // Feedback modal
+  const fbModal = document.getElementById('fbModal');
+  document.getElementById('fbClose').onclick = () => fbModal.classList.remove('open');
+  fbModal.addEventListener('click', (e) => { if (e.target === fbModal) fbModal.classList.remove('open'); });
+  const starPicker = document.getElementById('starPicker');
+  function renderStars(n) {
+    starPicker.innerHTML = Array.from({length:5}, (_, i) =>
+      `<span data-val="${i+1}" style="opacity:${i<n ? 1 : 0.25};">★</span>`
+    ).join('');
+    starPicker.querySelectorAll('[data-val]').forEach(s => {
+      s.onclick = () => {
+        const v = Number(s.dataset.val);
+        document.querySelector('input[name="rating"]').value = v;
+        renderStars(v);
+      };
+    });
+  }
+  function openFb({ feedback, partner }) {
+    document.getElementById('fbTarget').textContent = `Untuk ${partner}`;
+    document.querySelector('#fbForm input[name="session_id"]').value = feedback;
+    document.querySelector('#fbForm input[name="rating"]').value = 5;
+    document.getElementById('fbAlert').innerHTML = '';
+    renderStars(5);
+    fbModal.classList.add('open');
+  }
+  document.getElementById('fbForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api(`/api/sessions/${fd.get('session_id')}/feedback`, {
+        method: 'POST',
+        body: { rating: Number(fd.get('rating')), comment: fd.get('comment') || null }
+      });
+      fbModal.classList.remove('open');
+      toast('Terima kasih atas feedback-nya!', 'success');
+    } catch (err) {
+      document.getElementById('fbAlert').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+    }
+  });
+
+  async function progressSesi({ progress, siswa, mp }) {
+    const topik = prompt('Topik yang dipelajari:');
+    if (!topik) return;
+    const mastery = Number(prompt('Tingkat penguasaan siswa (1-5)?', '3'));
+    if (!(mastery >= 1 && mastery <= 5)) { toast('Nilai 1-5', 'error'); return; }
+    const catatan = prompt('Catatan (opsional):') || '';
+    try {
+      await api('/api/progress', {
+        method: 'POST',
+        body: { session_id: Number(progress), siswa_id: Number(siswa), mata_pelajaran: mp,
+                topik, mastery, catatan }
+      });
+      toast('Progress tercatat', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  }
+</script>
+</body>
+</html>

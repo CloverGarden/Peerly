@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div class="app" id="shell"></div>
+
+<script type="module">
+  import { api, setUser } from '/static/js/api.js';
+  import { mountShell, fmtDateTime, escapeHtml, renderNotifBell } from '/static/js/ui.js';
+
+  let data;
+  try {
+    // Sumber kebenaran adalah sesi (cookie) di server, bukan localStorage.
+    data = await api('/api/dashboard', { auth: false });
+  } catch (error) {
+    // Server sudah mengarahkan ke /pages/login jika belum login; ini untuk sesi yang habis saat halaman terbuka.
+    location.href = '/pages/login';
+    throw error;
+  }
+
+  const user = data.user;
+  // Sinkronkan localStorage agar ui.js (sidebar, dll.) membaca data yang sama.
+  setUser({ ...user, name: user.full_name });
+
+  mountShell('/pages/dashboard.html');
+  const main = document.getElementById('mainContent');
+
+  let bell = '';
+  try { bell = await renderNotifBell(); } catch (e) { bell = ''; }
+
+  const firstName = escapeHtml((user.full_name || '').split(' ')[0] || 'kamu');
+
+  if (user.role === 'siswa') renderSiswa(data); else renderTutor(data);
+
+  function renderSiswa({ stats, upcoming, progress }) {
+    const avg = stats.avg_mastery ?? '-';
+
+    main.innerHTML = `
+      <div class="main-head">
+        <div>
+          <h1>Halo, ${firstName} 👋</h1>
+          <p class="sub">Ini ringkasan belajarmu minggu ini.</p>
+        </div>
+        ${bell}
+      </div>
+
+      <div class="grid-4" style="margin-bottom: 28px;">
+        <div class="stat"><div class="label">Sesi selesai</div><div class="value">${stats.completed}</div></div>
+        <div class="stat"><div class="label">Permintaan pending</div><div class="value">${stats.pending}</div></div>
+        <div class="stat"><div class="label">Mata pelajaran dilacak</div><div class="value">${stats.tracked_subjects}</div></div>
+        <div class="stat"><div class="label">Rata-rata penguasaan</div><div class="value">${avg}<span style="font-size:1rem;color:var(--color-ink-soft);"> / 5</span></div></div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom: 28px;">
+        <div class="card">
+          <h3>Sesi mendatang</h3>
+          <p class="meta" style="margin-bottom:14px;">${upcoming.length ? '' : 'Belum ada sesi yang dikonfirmasi.'}</p>
+          ${upcoming.map(s => `
+            <div class="list-item" style="margin-bottom:10px;">
+              <div>
+                <h4>${escapeHtml(s.mata_pelajaran)}</h4>
+                <div class="meta">dengan ${escapeHtml(s.tutor_name)} · ${fmtDateTime(s.scheduled_at)} · ${escapeHtml(s.mode || '')}</div>
+              </div>
+              <div class="actions">
+                <a href="/pages/sesi.html" class="btn-sm outline">Detail</a>
+              </div>
+            </div>
+          `).join('') || `<div class="empty" style="padding:24px;">Belum ada sesi mendatang.<br><a href="/pages/cari-tutor.html" class="btn-sm" style="margin-top:12px;">Cari tutor sekarang</a></div>`}
+        </div>
+
+        <div class="card">
+          <h3>Short Cut</h3>
+          <p class="meta" style="margin-bottom:16px;">Mulai dari sini.</p>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <a href="/pages/cari-tutor.html" class="btn-sm">Cari tutor</a>
+            <a href="/pages/materi.html" class="btn-sm outline">Buka bank materi</a>
+            <a href="/pages/progress.html" class="btn-sm outline">Lihat progress belajar</a>
+            <a href="/pages/profil.html" class="btn-sm ghost">Perbarui profil</a>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="margin-bottom:14px;">Progress per mata pelajaran</h3>
+      ${progress.length ? `
+        <div class="card">
+          ${progress.map(m => `
+            <div style="margin-bottom:14px;">
+              <div style="display:flex;justify-content:space-between; margin-bottom:4px;">
+                <strong>${escapeHtml(m.mata_pelajaran)}</strong>
+                <span class="meta">${m.avg_mastery} / 5 · ${m.entries} catatan</span>
+              </div>
+              <div class="pbar"><span style="width:${Math.min(100, (m.avg_mastery / 5) * 100)}%;"></span></div>
+            </div>
+          `).join('')}
+        </div>
+      ` : `<div class="empty">Belum ada catatan progress. Progress akan dicatat tutormu setelah sesi selesai.</div>`}
+    `;
+  }
+
+  function renderTutor({ stats, pending_count, pending_sessions, upcoming, next_tier }) {
+    const h = stats.hours_taught;
+    const tierPct = Math.max(0, Math.min(100,
+      next_tier.name === 'Bronze' ? (h / 5) * 100 :
+      next_tier.name === 'Silver' ? ((h - 5) / 15) * 100 :
+      next_tier.name === 'Gold'   ? ((h - 20) / 30) * 100 :
+                                    ((h - 50) / 50) * 100
+    ));
+
+    main.innerHTML = `
+      <div class="main-head">
+        <div>
+          <h1>Halo, ${firstName} 👋</h1>
+          <p class="sub">Terima kasih sudah berbagi ilmu. Ini ringkasan kontribusimu.</p>
+        </div>
+        ${bell}
+      </div>
+
+      <div class="grid-4" style="margin-bottom:28px;">
+        <div class="stat"><div class="label">Poin volunteer</div><div class="value">${stats.points}</div><div class="trend">Tier ${escapeHtml(stats.tier)}</div></div>
+        <div class="stat"><div class="label">Jam mengajar</div><div class="value">${h.toFixed(1)}</div></div>
+        <div class="stat"><div class="label">Sesi selesai</div><div class="value">${stats.completed}</div></div>
+        <div class="stat"><div class="label">Rating</div><div class="value">${stats.rating ?? '-'}</div><div class="trend">${stats.rating_count} ulasan</div></div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:28px;">
+        <div class="card">
+          <h3>Permintaan menunggu konfirmasi (${pending_count})</h3>
+          <p class="meta" style="margin-bottom:14px;">Siswa menunggu respon dari kamu.</p>
+          ${pending_sessions.map(s => `
+            <div class="list-item" style="margin-bottom:10px;">
+              <div>
+                <h4>${escapeHtml(s.mata_pelajaran)} ${s.topik ? ' — ' + escapeHtml(s.topik) : ''}</h4>
+                <div class="meta">dari ${escapeHtml(s.siswa_name)} · ${fmtDateTime(s.scheduled_at)} · ${escapeHtml(s.mode || '')}</div>
+              </div>
+              <div class="actions">
+                <a href="/pages/sesi.html" class="btn-sm">Buka</a>
+              </div>
+            </div>
+          `).join('') || `<div class="empty" style="padding:20px;">Tidak ada permintaan baru.</div>`}
+        </div>
+
+        <div class="card">
+          <h3>Sesi mendatang</h3>
+          ${upcoming.map(s => `
+            <div class="list-item" style="margin-bottom:10px;">
+              <div>
+                <h4>${escapeHtml(s.mata_pelajaran)}</h4>
+                <div class="meta">dengan ${escapeHtml(s.siswa_name)} · ${fmtDateTime(s.scheduled_at)}</div>
+              </div>
+              <div class="actions">
+                <a href="/pages/sesi.html" class="btn-sm outline">Detail</a>
+              </div>
+            </div>
+          `).join('') || `<div class="empty" style="padding:20px;">Belum ada sesi mendatang.</div>`}
+        </div>
+      </div>
+
+      <h3 style="margin-bottom:10px;">Progres menuju tier berikutnya</h3>
+      <div class="card">
+        ${next_tier.name === 'Max' ? `
+          <p>Kamu sudah mencapai tier tertinggi (Platinum). 🎉</p>
+        ` : `
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <strong>Tier berikutnya: ${escapeHtml(next_tier.name)}</strong>
+            <span class="meta">${next_tier.need.toFixed(1)} jam lagi</span>
+          </div>
+          <div class="pbar"><span style="width:${tierPct}%;"></span></div>
+          <p class="meta" style="margin-top:10px;">
+            Setiap sesi selesai menambah 10 poin + 1 poin per 10 menit, dan menambah jam mengajarmu.
+          </p>
+          <a href="/pages/poin.html" class="btn-sm" style="margin-top:12px;">Lihat sertifikat</a>
+        `}
+      </div>
+    `;
+  }
+</script>
+</body>
+</html>

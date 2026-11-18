@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cari Siswa — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<div class="app" id="shell"></div>
+
+<script type="module">
+  import { api, requireAuth } from '/js/api.js';
+  import { mountShell, escapeHtml, SUBJECTS, JENJANGS } from '/js/ui.js';
+
+  const user = requireAuth('tutor');
+  if (!user) throw new Error('redirect');
+  mountShell('/pages/cari-siswa.html');
+
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="main-head">
+      <div>
+        <h1>Cari Siswa</h1>
+        <p class="sub">Lihat daftar siswa yang mata pelajaran-nya sesuai dengan yang kamu bisa ajar. Permintaan sesi tetap dari siswa — kamu bisa menampilkan profil agar mudah ditemukan.</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div><label>Mata pelajaran</label>
+        <select id="fMp"><option value="">Semua</option>${SUBJECTS.map(s=>`<option>${s}</option>`).join('')}</select></div>
+      <div><label>Jenjang</label>
+        <select id="fJj"><option value="">Semua</option>${JENJANGS.map(j=>`<option>${j}</option>`).join('')}</select></div>
+      <div><label>Mode</label>
+        <select id="fMode"><option value="">Semua</option><option value="online">Online</option><option value="offline">Offline</option><option value="both">Keduanya</option></select></div>
+      <div style="grid-column: span 2;"><label>&nbsp;</label></div>
+      <div><label>&nbsp;</label><button class="btn-sm" id="btnFilter" style="width:100%;">Terapkan</button></div>
+    </div>
+
+    <div id="results"></div>
+  `;
+
+  const results = document.getElementById('results');
+  document.getElementById('btnFilter').addEventListener('click', load);
+  await load();
+
+  async function load() {
+    results.innerHTML = `<div class="empty" style="padding:20px;">Memuat…</div>`;
+    const { students } = await api('/api/match/students');
+    const mp = document.getElementById('fMp').value;
+    const jj = document.getElementById('fJj').value;
+    const md = document.getElementById('fMode').value;
+
+    const filtered = students.filter(s => {
+      if (mp && !(s.mata_pelajaran || '').toLowerCase().includes(mp.toLowerCase())) return false;
+      if (jj && !(s.jenjang || '').toLowerCase().includes(jj.toLowerCase())) return false;
+      if (md && (s.mode_preference || '') !== md) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      results.innerHTML = `<div class="empty"><h3>Belum ada siswa cocok</h3><p>Longgarkan filter atau pastikan profilmu memilih mata pelajaran.</p></div>`;
+      return;
+    }
+
+    results.innerHTML = filtered.map(s => {
+      const mps = (s.mata_pelajaran || '').split(',').filter(Boolean);
+      return `
+        <div class="list-item">
+          <div>
+            <h4>${escapeHtml(s.name)}</h4>
+            <div class="meta">
+              ${s.jenjang ? escapeHtml(s.jenjang) : 'Jenjang -'}
+              ${s.kelas ? ' · ' + escapeHtml(s.kelas) : ''}
+              ${s.lokasi ? ' · ' + escapeHtml(s.lokasi) : ''}
+              ${s.mode_preference ? ' · mode: ' + escapeHtml(s.mode_preference) : ''}
+            </div>
+            ${s.bio ? `<p style="margin-top:8px; font-size:0.92rem; color:var(--color-ink-soft);">${escapeHtml(s.bio)}</p>` : ''}
+            <div class="chips">
+              ${mps.map(m => `<span class="chip">${escapeHtml(m)}</span>`).join('')}
+              ${s.gaya_belajar ? `<span class="chip amber">Gaya: ${escapeHtml(s.gaya_belajar)}</span>` : ''}
+            </div>
+            ${s.availability ? `<p class="meta" style="margin-top:8px;"><strong>Tersedia:</strong> ${escapeHtml(s.availability)}</p>` : ''}
+          </div>
+          <div class="actions">
+            <span class="chip ${s._score >= 40 ? 'green' : 'amber'}">${s._score >= 40 ? 'Sangat cocok' : 'Mungkin cocok'}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+</script>
+</body>
+</html>

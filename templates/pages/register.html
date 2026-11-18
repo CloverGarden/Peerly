@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daftar — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<header class="site-header">
+  <nav class="nav container">
+    <a href="/" class="brand"><img src="/static/assets/logo-mark.svg" alt=""><span>Peerly</span></a>
+    <ul class="nav-links"><li><a href="/pages/login">Sudah punya akun? Masuk</a></li></ul>
+  </nav>
+</header>
+<main class="container">
+  <div class="form-card">
+    <h1>Buat akun baru</h1>
+    <p class="sub">Isi profil singkat untuk mulai belajar atau mengajar.</p>
+    <div id="alert" aria-live="polite"></div>
+    <form id="registerForm">
+      <div class="form-group">
+        <label>Saya bergabung sebagai</label>
+        <div class="role-pick">
+          <label><input type="radio" name="role" value="siswa" checked><span><strong>Siswa</strong><br><small>Butuh bimbingan</small></span></label>
+          <label><input type="radio" name="role" value="tutor"><span><strong>Tutor</strong><br><small>Mau mengajar</small></span></label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="name">Nama lengkap</label>
+        <input id="name" name="name" type="text" required autocomplete="name" placeholder="mis. Siti Aisyah">
+      </div>
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" required minlength="3" maxlength="30"
+               pattern="[A-Za-z0-9_.]+" autocomplete="username" autocapitalize="none" spellcheck="false"
+               placeholder="mis. siti.aisyah">
+        <small class="small">3-30 karakter: huruf, angka, titik, atau underscore.</small>
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required autocomplete="email" placeholder="nama@email.com">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required minlength="6" autocomplete="new-password" placeholder="Minimal 6 karakter">
+      </div>
+      <button id="submitBtn" type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Daftar</button>
+    </form>
+    <div class="form-footer"><span class="small">Sudah punya akun? <a href="/pages/login">Masuk di sini</a></span></div>
+  </div>
+</main>
+<script type="module">
+import { api, setUser } from '/static/js/api.js';
+
+const params = new URLSearchParams(location.search);
+const selectedRole = params.get('role');
+if (selectedRole === 'tutor' || selectedRole === 'siswa') {
+  document.querySelector(`input[name="role"][value="${selectedRole}"]`).checked = true;
+}
+
+const form = document.getElementById('registerForm');
+const alertBox = document.getElementById('alert');
+const button = document.getElementById('submitBtn');
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  alertBox.innerHTML = '';
+  button.disabled = true;
+  button.textContent = 'Mendaftarkan...';
+  const values = new FormData(form);
+  try {
+    const result = await api('/api/auth/register', {
+      method: 'POST',
+      auth: false,
+      body: {
+        name: values.get('name').trim(),
+        username: values.get('username').trim(),
+        email: values.get('email').trim(),
+        password: values.get('password'),
+        role: values.get('role'),
+      },
+    });
+    setUser({ ...result.user, name: result.user.full_name });
+    location.href = '/pages/dashboard';
+  } catch (error) {
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(error.message)}</div>`;
+    button.disabled = false;
+    button.textContent = 'Daftar';
+  }
+});
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
